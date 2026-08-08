@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"sync"
 )
 
 // startBackendServer simulates an internal API  or wen app
@@ -20,23 +21,54 @@ func startBackendServer(port string) {
 	log.Fatal(http.ListenAndServe(port, mux))
 }
 
-func main() {
-	// 1. Start a single hidden backend in a backgrounf goroutine
-	go startBackendServer(":9091")
-	//2. Parse the destination URL (where the proxxy should send traffic)
-	// We check for errors immediately (Crash Early Principle)
+// Define the Load Balacer strucct - Holding the routing state
+type LoadBalancer struct {
+	port            string
+	servers         []*url.URL
+	roundRobinCount int
+	mu              sync.Mutex
+}
 
-	targetURL, err := url.Parse("http://localhost:9091")
-	if err != nil {
-		log.Fatal("Error prasing backend URL:", err)
+//Design with contracts : implement the http.handler interface. beacuse this struct has a serveHTTP method, Go knows it can act as a web server.
+
+func (lb *LoadBalancer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	//Lock the mutex to safely pick the next server
+	lb.mu.Lock()
+
+	//Modulo arithmetic ensure the index loops back to 0 when it hits the end of the slice
+	serverIndex := lb.roundRobinCount % len(lb.servers)
+	targetURL := lb.servers[serverIndex]
+
+	lb.roundRobinCount++
+	lb.mu.Unlock()
+	fmt.Printf("Routing request to %s\n", targetURL)
+
+	// Create a reverse proxy dynamically and forward the request
+	proxy := httputil.NewSingleHostReverseProxy(targetURL)
+	proxy.ServeHTTP(w, r)
+}
+
+func main() {
+	// Starting 3 backends in the background
+
+	backends := []string{":9091", ":9092", ":9093"}
+	for _, port := range backends {
+		go startBackendServer(port)
 	}
 
-	//3. Initialize the reverse proxy using Go's built-in library
-	proxy := httputil.NewSingleHostReverseProxy(targetURL)
+	// parse the strings into actual url.URL ogjects
+	var servers []*url.URL
+	for _, port := range backends {
+		u, _ := url.Parse("http://localhost" + port)
+		servers = append(servers, u)
+	}
+	//initialization of load balancer
+	lb := &LoadBalancer{
+		port:    ":8080",
+		servers: servers,
+	}
 
-	// 4. Start the proxy server on port 8080
-	// ANy traffic hitting 8080 will be swallowed by 'proxy' nd spat out to 'targetURL'
+	log.Printf("LoadBalancer listening on %s.. \n", lb.port)
 
-	log.Println("LoadBalancer (Proxy) listening on :8080....")
-	log.Fatal(http.ListenAndServe(":8080", proxy))
+	log.Fatal(http.ListenAndServe(lb.port, lb))
 }
