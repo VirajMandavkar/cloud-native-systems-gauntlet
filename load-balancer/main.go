@@ -13,16 +13,26 @@ import (
 // Define the Load Balacer strucct - Holding the routing state
 type LoadBalancer struct {
 	port            string
-	servers         []*Backend
+	servers         BackendHeap
 	roundRobinCount int
 	mu              sync.Mutex
 }
 
 // Defining the backend struct
 type Backend struct {
-	URL   *url.URL
-	Alive bool
-	mu    sync.RWMutex
+	URL         *url.URL
+	Alive       bool
+	ActiveConns int
+	Index       int
+	mu          sync.RWMutex
+}
+
+// Defining Min.Heap
+type BackendHeap []*Backend
+
+// Len() telling the heap how may servers exist
+func (h BackendHeap) Len() int {
+	return len(h)
 }
 
 // startBackendServer simulates an internal API  or wen app
