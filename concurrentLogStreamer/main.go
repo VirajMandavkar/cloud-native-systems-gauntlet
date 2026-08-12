@@ -56,7 +56,12 @@ func Writer(Log chan LogEntry, doneChan chan bool) {
 	if err != nil {
 		panic(err)
 	}
-	defer func() { file.Close() }()
+	defer func() {
+		if file != nil {
+			file.Close()
+		}
+		close(doneChan)
+	}()
 
 	for entry := range Log {
 
