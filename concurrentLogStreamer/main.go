@@ -1,47 +1,49 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
-	"math/rand/v2"
+
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
-	"sync"
 	"time"
 )
 
 type LogEntry struct {
-	ServiceData ServiceType // containing the server id and service name
-	Status      string      // containing the error
-	Time        *time.Time
+	ServiceData ServiceType `json:"service"` // containing the server id and service name
+	Status      string      `json:"status"`  // containing the error
+	Time        *time.Time  `json:"time,omitempty"`
 }
 
 type ServiceType struct {
-	Name string
-	ID   int
+	Name string `json:"name"`
+	ID   int    `json:"id"`
 }
 
-func Worker(Service ServiceType, Log chan LogEntry, quit chan bool, wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	StatusType := []string{"INFO : All good !", "WARN : High CPU", "ERROR : Connection Loss"}
-	for {
-		randomInt := rand.IntN(3)
-		sleepTime := time.Duration(randomInt+1) * time.Second
-		select {
-		case <-quit:
-			fmt.Printf("Worker %s shutting down...\n", Service.Name)
+func logHandler(Log chan LogEntry) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
-
-		case <-time.After(sleepTime):
-			now := time.Now()
-			logs := LogEntry{
-				ServiceData: Service,
-				Status:      StatusType[randomInt],
-				Time:        &now,
-			}
-			Log <- logs
 		}
+
+		var entry LogEntry
+		err := json.NewDecoder(r.Body).Decode(&entry)
+		if err != nil {
+			http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+			return
+		}
+
+		now := time.Now()
+		entry.Time = &now
+
+		Log <- entry
+
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("Log received\n"))
 	}
 }
 
@@ -96,34 +98,30 @@ func Writer(Log chan LogEntry, doneChan chan bool) {
 
 func main() {
 
-	services := []ServiceType{
-		{Name: "Apache", ID: 1},
-		{Name: "Web1", ID: 2},
-		{Name: "Web2", ID: 3},
-	}
-
 	myPipe := make(chan LogEntry, 1000)
-	quitChan := make(chan bool)
 	doneChan := make(chan bool)
 
-	var wg sync.WaitGroup
+	go Writer(myPipe, doneChan)
 
-	for _, svc := range services {
-		wg.Add(1)
-		go Worker(svc, myPipe, quitChan, &wg)
+	http.HandleFunc("/logs", logHandler(myPipe))
+	server := &http.Server{
+		Addr: ":8080",
 	}
 
-	go Writer(myPipe, doneChan)
+	go func() {
+		fmt.Println("[+] Server listening on port 8080....")
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			panic(err)
+		}
+	}()
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt)
 
 	<-sigChan
-	fmt.Printf("\n[i] Shutdown signal recieved. Stopping workers.....\n")
+	fmt.Printf("\n[i] Shutdown signal recieved. Stopping network traffic.....\n")
 
-	close(quitChan)
-
-	wg.Wait()
+	server.Shutdown(context.Background())
 
 	close(myPipe)
 
