@@ -97,8 +97,6 @@ func Writer(Log chan LogEntry, doneChan chan bool) {
 			fmt.Print(logLine)
 		}
 	}
-	file.Close()
-	close(doneChan)
 }
 
 func main() {
