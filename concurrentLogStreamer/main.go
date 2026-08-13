@@ -24,6 +24,7 @@ type ServiceType struct {
 }
 
 func logHandler(Log chan LogEntry) http.HandlerFunc {
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -39,11 +40,14 @@ func logHandler(Log chan LogEntry) http.HandlerFunc {
 
 		now := time.Now()
 		entry.Time = &now
+		select {
+		case Log <- entry:
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("Log received\n"))
 
-		Log <- entry
-
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("Log received\n"))
+		default:
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}
 	}
 }
 
@@ -124,7 +128,9 @@ func main() {
 	<-sigChan
 	fmt.Printf("\n[i] Shutdown signal recieved. Stopping network traffic.....\n")
 
-	server.Shutdown(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	server.Shutdown(ctx)
 
 	close(myPipe)
 
