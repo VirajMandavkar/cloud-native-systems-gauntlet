@@ -144,7 +144,7 @@ func workers(id int, jobs <-chan CrawlJob, wg *sync.WaitGroup, mu *sync.Mutex, v
 }
 
 func main() {
-	startURL := "https://www.reddit.com/"
+	startURL := "https://www1.iitp.ac.in/"
 	maxDepth := 1 // Be careful setting this too high!
 
 	// Initialize our visited map.
@@ -163,7 +163,7 @@ func main() {
 	fmt.Printf("Starting sequential crawl at %s...\n", startURL)
 
 	// Start 5 concurrnet workers
-	for i := 1; i <= 5; i++ {
+	for i := 1; i <= 10; i++ {
 		go workers(i, jobs, &wg, &mu, visited, maxDepth, results)
 	}
 
